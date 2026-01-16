@@ -56,20 +56,20 @@ Add a row. Call it. No deployment.
 
 1. **Clone via abapGit**
    ```
-   Repository URL: https://github.com/[your-username]/abapilot-connector
+   Repository URL: https://github.com/NicoHern/abap-dynamic-rest
    Package: ZABAPILOT (or your choice)
    ```
 
 2. **Activate all objects**
    - Table: `ZAGENT_ENDPOINTS`
    - Table maintenance: `ZAGENT_ENDPOINTS` (SM30)
-   - Class: `ZCL_AGENT_HTTP_HANDLER`
+   - Class: `ZCL_AGENT_DISPATCHER`
    - Sample handlers: `ZCL_AGENT_*`
 
 3. **Create SICF node**
    - Transaction: `SICF`
    - Path: `/sap/bc/zagent` (or your choice)
-   - Handler: `ZCL_AGENT_HTTP_HANDLER`
+   - Handler: `ZCL_AGENT_DISPATCHER`
 
 4. **Configure endpoints**
    - Transaction: `SM30`
