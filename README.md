@@ -260,7 +260,7 @@ The handler performs `AUTHORITY-CHECK` before calling your method. Failed checks
 
 ## Part of ABAPilot
 
-This connector is the ABAP foundation of [ABAPilot](https://github.com/[your-username]/abapilot), an AI-powered ABAP development tool.
+This connector is the ABAP foundation of [ABAPilot](https://crimsonconsultingsl.com/abapilot/), an AI-powered ABAP development tool.
 
 ABAPilot adds:
 - Natural language queries against SAP data
@@ -268,7 +268,7 @@ ABAPilot adds:
 - Multi-agent pipeline (plan → design → code → review → test → deploy)
 - Error learning that improves over time
 
-Interested? [Contact me](mailto:your@email.com) or open an issue.
+Interested? [Contact me](mailto:nicolashernandez@crimsonconsultingsl.com) or open an issue.
 
 ---
 
@@ -291,8 +291,8 @@ MIT License — use it, modify it, ship it.
 ## Author
 
 **Nicolas** — SAP Technical Consultant
-- LinkedIn: [your-profile]
-- Email: [your@email.com]
+- LinkedIn: [[your-profile](https://www.linkedin.com/in/nicolas-hernandez-abap/)]
+- Email: [nicolashernandez1987@gmail.com]
 
 Built in Valencia, Spain 🇪🇸
 
