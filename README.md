@@ -197,10 +197,8 @@ The handler performs `AUTHORITY-CHECK` before calling your method. Failed checks
 
 | Class | Purpose |
 |-------|---------|
-| `ZCL_AGENT_QUERY` | Execute natural language queries (requires AI backend) |
-| `ZCL_AGENT_TABLES` | Read SAP table data with filters |
-| `ZCL_AGENT_CODE` | Read/write ABAP source code |
-| `ZCL_AGENT_PING` | Simple health check endpoint |
+| ZCL_AGENT_PING   | Simple health check / echo endpoint |
+| ZCL_AGENT_READ   | Dynamic table reading with filters and pagination |
 
 ---
 
@@ -291,7 +289,7 @@ MIT License — use it, modify it, ship it.
 ## Author
 
 **Nicolas** — SAP Technical Consultant
-- LinkedIn: [[your-profile](https://www.linkedin.com/in/nicolas-hernandez-abap/)]
+- LinkedIn: [nicolas-hernandez-abap](https://www.linkedin.com/in/nicolas-hernandez-abap/)
 - Email: [nicolashernandez1987@gmail.com]
 
 Built in Valencia, Spain 🇪🇸
