@@ -1,4 +1,4 @@
-# ABAP Dybnaic REST Connector
+# ABAP Dynamic REST Connector
 
 A lightweight, table-driven REST API framework for SAP ECC 6.0 (and higher).
 
