@@ -1,4 +1,4 @@
-# ABAPilot ABAP Connector
+# ABAP Dybnaic REST Connector
 
 A lightweight, table-driven REST API framework for SAP ECC 6.0 (and higher).
 
