@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_DTEL" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <DD04V>
+    <ROLLNAME>ZDYN_ENDPOINT</ROLLNAME>
+    <DDLANGUAGE>E</DDLANGUAGE>
+    <DOMNAME>ZDYN_ENDPOINT_D</DOMNAME>
+    <HEADLEN>08</HEADLEN>
+    <SCRLEN1>08</SCRLEN1>
+    <SCRLEN2>13</SCRLEN2>
+    <SCRLEN3>26</SCRLEN3>
+    <DDTEXT>ABAP-dynamic-rest Endpoint</DDTEXT>
+    <REPTEXT>Endpoint</REPTEXT>
+    <SCRTEXT_S>Endpoint</SCRTEXT_S>
+    <SCRTEXT_M>Endpoint Path</SCRTEXT_M>
+    <SCRTEXT_L>ABAP-dynamic-rest Endpoint</SCRTEXT_L>
+    <DTELMASTER>E</DTELMASTER>
+    <REFKIND>D</REFKIND>
+   </DD04V>
+  </asx:values>
+ </asx:abap>
+</abapGit>
