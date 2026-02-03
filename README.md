@@ -81,7 +81,7 @@ Add a row. Call it. No deployment.
 2. **Activate all objects**
    - Table: `ZAGENT_ENDPOINTS`
    - Table Type: `ZAGENT_ENDPOINTS_TT`
-   - Classes: `ZCL_AGENT_DISPATCHER`, `ZCL_AGENT_HTTP_HANDLER`, `ZCL_AGENT_HANDLER_BASE`
+   - Classes: `ZCL_AGENT_DISPATCHER`, `ZCL_AGENT_HANDLER_BASE`
    - Sample handlers: `ZCL_AGENT_READ`, `ZCL_AGENT_PING`
    - Interface: `ZIF_AGENT_HANDLER`
 
@@ -95,7 +95,7 @@ Add a row. Call it. No deployment.
 4. **Create SICF node**
    - Transaction: `SICF`
    - Path: `/sap/bc/ZABAPilot`
-   - Handler: `ZCL_AGENT_HTTP_HANDLER`
+   - Handler: `ZCL_AGENT_DISPATCHER`
    - Activate the service
 
 5. **Configure endpoints (SM30)**
@@ -144,16 +144,20 @@ You're likely using the wrong branch. Switch to `s4hana`.
 ```abap
 CLASS zcl_my_handler DEFINITION PUBLIC
   INHERITING FROM zcl_agent_handler_base.
-  
+
   PUBLIC SECTION.
     METHODS hello.
 ENDCLASS.
 
 CLASS zcl_my_handler IMPLEMENTATION.
   METHOD hello.
-    DATA(lv_name) = get_json_value( 'name' ).
-    
-    set_json_response( |\{"message": "Hello { lv_name }!"\}| ).
+    DATA: lv_name     TYPE string,
+          lv_response TYPE string.
+
+    lv_name = parse_json_param( iv_param_name = 'name' ).
+
+    CONCATENATE '{"message":"Hello ' lv_name '!"}' INTO lv_response.
+    send_json( lv_response ).
   ENDMETHOD.
 ENDCLASS.
 ```
@@ -188,6 +192,7 @@ No transport. No deployment. Just works.
 | `HTTP_METHOD` | CHAR(10) | GET, POST, PUT, DELETE, or * for any |
 | `HANDLER_CLASS` | SEOCLSNAME | ABAP class to instantiate |
 | `HANDLER_METHOD` | SEOCPDNAME | Method to call |
+| `AUTH_OBJECT` | XUOBJECT | Optional SAP authorization object to check |
 | `IS_ACTIVE` | ABAP_BOOL | X = enabled, blank = disabled |
 
 ---
@@ -196,14 +201,18 @@ No transport. No deployment. Just works.
 
 Handler classes should inherit from `ZCL_AGENT_HANDLER_BASE` which provides:
 ```abap
-" Reading input
-DATA(lv_value) = get_json_value( 'field_name' ).
-DATA(lt_body) = get_request_body( ).
+" Reading input (JSON body parsed via regex)
+DATA(lv_value) = parse_json_param( iv_param_name = 'field_name' ).
+DATA(lv_num)   = parse_json_int( iv_param_name = 'count' iv_default = 10 ).
+DATA(lv_flag)  = parse_json_bool( iv_param_name = 'active' ).
+
+" Raw request body available via:
+DATA(lv_body)  = mv_body.
 
 " Writing output
-set_json_response( lv_json_string ).
-set_error_response( 'Error message' ).
-set_status( 400 ).
+send_json( iv_json = lv_json_string ).
+send_success( iv_json = '"data":"value"' ).  " Wraps in {"status":"success",...}
+send_error( iv_message = 'Error message' iv_code = 400 ).
 ```
 
 Or implement `ZIF_AGENT_HANDLER` directly for full control:
@@ -234,18 +243,15 @@ METHODS handle_request
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              SICF Node (/sap/bc/ZABAPilot)                      │
-│              Handler: ZCL_AGENT_HTTP_HANDLER                    │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    ZCL_AGENT_DISPATCHER                         │
+│              Handler: ZCL_AGENT_DISPATCHER                      │
+│                                                                 │
 │  1. Parse endpoint path from request                            │
-│  2. Lookup in ZAGENT_ENDPOINTS                                  │
+│  2. Lookup in ZAGENT_ENDPOINTS (cached)                         │
 │  3. Check IS_ACTIVE flag                                        │
 │  4. CREATE OBJECT handler dynamically                           │
-│  5. CALL METHOD dynamically                                     │
-│  6. Return response                                             │
+│  5. Check authorization (if auth_object configured)             │
+│  6. CALL METHOD dynamically                                     │
+│  7. Return response                                             │
 └─────────────────────────────────────────────────────────────────┘
                                │
                                ▼
@@ -290,6 +296,39 @@ ABAPilot adds:
 - Error learning that improves over time
 
 Interested? [Contact me](mailto:nicolashernandez@crimsonconsultingsl.com) or open an issue.
+
+---
+
+## Security Considerations
+
+### Dynamic WHERE Clause
+
+The `handle_read_table_data` method accepts a `where` parameter that is passed directly to a dynamic SELECT statement. This is powerful but requires careful consideration:
+
+```abap
+" User input flows directly to WHERE clause
+SELECT * FROM (lv_table_name) INTO TABLE <lt_data> WHERE (lv_where).
+```
+
+**Recommendations:**
+- Only expose this endpoint to trusted internal consumers (AI agents, internal tools)
+- Consider implementing a whitelist of allowed fields and operators
+- Use SAP's standard authorization objects (`S_TABU_DIS`) to control table access
+- Monitor usage via SM21/ST22 logs
+
+### Endpoint Matching
+
+The dispatcher uses substring matching (`CS`) as a fallback when exact match fails:
+
+```abap
+IF iv_path CS ls_cache-endpoint_path.
+```
+
+This means `/ping` would also match `/myping` or `/pingtest`. For production use, consider using exact matching only or prefix matching with a leading slash check.
+
+### Authorization
+
+Authorization is checked via SAP standard `AUTHORITY-CHECK` when an `AUTH_OBJECT` is configured in the endpoint table. Endpoints without an auth object specified are accessible to all authenticated users.
 
 ---
 
