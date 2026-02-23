@@ -272,7 +272,7 @@ METHODS handle_request
 | Runtime enable/disable | ✅ | ❌ | ❌ | ❌ |
 | ECC 6.0 support | ✅ | ✅ | ✅ | ❌ |
 | S/4HANA support | ✅ | ✅ | ✅ | ✅ |
-| None | None | None | Required | BTP/S4 |
+| Additional License | None | None | None | BTP/S4 |
 
 ---
 
