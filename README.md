@@ -11,7 +11,7 @@ A lightweight, table-driven REST API framework for SAP ECC 6.0 and S/4HANA.
 If you've worked with REST APIs in ECC, you know the pain:
 
 - **CL_REST_ROUTER** requires hardcoded routes — new endpoint = code change + transport
-- **SAP Gateway** requires licensing and significant setup
+- **SAP Gateway** requires significant setup
 - **RAP** requires S/4HANA
 
 This connector takes a different approach: **endpoints are configuration, not code**.
@@ -272,7 +272,7 @@ METHODS handle_request
 | Runtime enable/disable | ✅ | ❌ | ❌ | ❌ |
 | ECC 6.0 support | ✅ | ✅ | ✅ | ❌ |
 | S/4HANA support | ✅ | ✅ | ✅ | ✅ |
-| Additional licensing | None | None | Required | BTP/S4 |
+| None | None | None | Required | BTP/S4 |
 
 ---
 
