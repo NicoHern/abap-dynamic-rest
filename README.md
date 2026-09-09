@@ -2,7 +2,17 @@
 
 A lightweight, table-driven REST API framework for SAP ECC 6.0 and S/4HANA.
 
-**Add REST endpoints without code changes. Configure in SM30, call immediately.**
+**Route REST requests to installed ABAP handlers through SM30 configuration.**
+
+New handler behavior still requires ABAP implementation, activation and your normal change process. Configuration changes require appropriate authorization and review.
+
+## Relationship to ABAPilot
+
+This MIT-licensed repository publishes the table-driven REST framework behind the ABAPilot architecture. It is not the complete ABAPilot product or an MCP server implementation.
+
+The [public ABAPilot MCP connector](https://github.com/NicoHern/abapilot-mcp) runs outside SAP and translates MCP tool calls into HTTPS requests to the separately licensed ABAPilot backend. Installing this framework does not install that backend, provide a backend licence or establish compatibility with the connector’s complete tool catalog.
+
+Use this repository to inspect or adapt the REST routing approach. For the product’s installation requirements and supported configuration, see the [ABAPilot setup guide](https://crimsonconsultingsl.com/abapilot-abap-mcp-server-any-ide/). Framework examples and product deployments provide different evidence; verify the exact branch, revision and operations on your own system.
 
 ---
 
@@ -28,15 +38,15 @@ This connector takes a different approach: **endpoints are configuration, not co
 └──────────────┴─────────────────────┴───────────────┴────────────┘
 ```
 
-Add a row. Call it. No deployment.
+An endpoint mapping can reuse an already installed handler. Adding a new handler or changing its logic remains a code change.
 
 ---
 
 ## Features
 
 - **Dynamic routing** — endpoint → class → method mapping via config table
-- **Zero dependencies** — pure ABAP, no Gateway, no BTP, no additional licensing
-- **Works on ECC 6.0 and S/4HANA** — tested on ECC EHP 0-8 and S/4HANA 2020+
+- **ABAP implementation** — no SAP Gateway or BTP dependency for this routing approach; repository code is MIT-licensed. SAP system and other software licence requirements remain separate.
+- **ECC and S/4HANA branches** — choose the branch for your target system and validate it there. This repository does not publish a release-by-release test matrix establishing coverage of every ECC EHP or S/4HANA release.
 - **Runtime control** — enable/disable endpoints without transport
 - **Authorization support** — per-endpoint auth object configuration
 - **SM30 maintenance** — standard SAP tooling, standard transports
@@ -178,7 +188,7 @@ curl -X POST "https://<host>:<port>/sap/bc/ZABAPilot/hello" \
 {"message": "Hello World!"}
 ```
 
-No transport. No deployment. Just works.
+After the handler has been implemented and activated, the endpoint mapping can route requests to it. Apply your normal authorization, testing and transport process.
 
 ---
 
@@ -272,7 +282,7 @@ METHODS handle_request
 | Runtime enable/disable | ✅ | ❌ | ❌ | ❌ |
 | ECC 6.0 support | ✅ | ✅ | ✅ | ❌ |
 | S/4HANA support | ✅ | ✅ | ✅ | ✅ |
-| Additional License | None | None | None | BTP/S4 |
+| Licensing | MIT repository code; SAP licences separate | Check SAP agreement | Check SAP agreement | Check SAP agreement |
 
 ---
 
