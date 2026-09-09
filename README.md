@@ -1,8 +1,18 @@
 # ABAP Dynamic REST Connector
 
-A lightweight, table-driven REST API framework for SAP ECC 6.0 (and higher).
+A lightweight, table-driven REST API framework. This branch contains the S/4HANA variant; use the main branch for the ECC variant and validate the selected revision on your system.
 
-**Add REST endpoints without code changes. Configure in SM30, call immediately.**
+**Route REST requests to installed ABAP handlers through SM30 configuration.**
+
+New handler behavior still requires ABAP implementation, activation and your normal change process. Configuration changes require appropriate authorization and review.
+
+## Relationship to ABAPilot
+
+This MIT-licensed repository publishes the table-driven REST framework behind the ABAPilot architecture. It is not the complete ABAPilot product or an MCP server implementation.
+
+The [public ABAPilot MCP connector](https://github.com/NicoHern/abapilot-mcp) runs outside SAP and translates MCP tool calls into HTTPS requests to the separately licensed ABAPilot backend. Installing this framework does not install that backend, provide a backend licence or establish compatibility with the connector’s complete tool catalog.
+
+Use this repository to inspect or adapt the REST routing approach. For the product’s installation requirements and supported configuration, see the [ABAPilot setup guide](https://crimsonconsultingsl.com/abapilot-abap-mcp-server-any-ide/). Framework examples and product deployments provide different evidence; verify the exact branch, revision and operations on your own system.
 
 ---
 
@@ -11,7 +21,7 @@ A lightweight, table-driven REST API framework for SAP ECC 6.0 (and higher).
 If you've worked with REST APIs in ECC, you know the pain:
 
 - **CL_REST_ROUTER** requires hardcoded routes — new endpoint = code change + transport
-- **SAP Gateway** requires licensing and significant setup
+- **SAP Gateway** follows a different service implementation and setup approach
 - **RAP** requires S/4HANA
 
 This connector takes a different approach: **endpoints are configuration, not code**.
@@ -29,15 +39,15 @@ This connector takes a different approach: **endpoints are configuration, not co
 └──────────────┴─────────────────────┴───────────────┴────────────┘
 ```
 
-Add a row. Call it. No deployment.
+An endpoint mapping can reuse an already installed handler. Adding a new handler or changing its logic remains a code change.
 
 ---
 
 ## Features
 
 - **Dynamic routing** — endpoint → class → method mapping via config table
-- **Zero dependencies** — pure ABAP, no Gateway, no BTP, no additional licensing
-- **Works on ECC 6.0** — tested on EHP 0 through 8
+- **ABAP implementation** — no SAP Gateway or BTP dependency for this routing approach; repository code is MIT-licensed. SAP system and other software licence requirements remain separate.
+- **Branch-specific compatibility** — this repository does not publish a release-by-release test matrix establishing coverage of every ECC EHP or S/4HANA release. Validate the branch, revision and operations on your target system.
 - **Runtime control** — enable/disable endpoints without transport
 - **Authorization support** — per-endpoint auth object configuration
 - **SM30 maintenance** — standard SAP tooling, standard transports
@@ -48,7 +58,7 @@ Add a row. Call it. No deployment.
 
 ### Prerequisites
 
-- SAP ECC 6.0 or higher (also works on S/4HANA)
+- A S/4HANA development or sandbox system for this branch; confirm release and support-package compatibility before use
 - Developer access to create objects in a custom namespace
 - [abapGit](https://abapgit.org/) installed
 
@@ -57,6 +67,7 @@ Add a row. Call it. No deployment.
 1. **Clone via abapGit**
    ```
    Repository URL: https://github.com/NicoHern/abap-dynamic-rest
+   Branch: s4hana
    Package: ZABAPILOT (or your choice)
    ```
 
@@ -121,7 +132,7 @@ curl "https://<host>:<port>/sap/bc/zagent/hello?name=World"
 { "message": "Hello World!" }
 ```
 
-No transport. No deployment. Just works.
+After the handler has been implemented and activated, the endpoint mapping can route requests to it. Apply your normal authorization, testing and transport process.
 
 ---
 
