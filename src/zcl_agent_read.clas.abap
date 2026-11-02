@@ -34,6 +34,8 @@ CLASS zcl_agent_read DEFINITION
     TYPES tt_dd03p TYPE STANDARD TABLE OF ty_dd03p WITH DEFAULT KEY.
 
     METHODS check_table_auth
+      IMPORTING
+        iv_table_name        TYPE dd02l-tabname
       RETURNING
         VALUE(rv_authorized) TYPE abap_bool.
 
@@ -66,7 +68,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Authorization check
-    IF check_table_auth( ) = abap_false.
+    IF check_table_auth( lv_table_name ) = abap_false.
       send_error( iv_message = 'Not authorized for table access' iv_code = 403 ).
       RETURN.
     ENDIF.
@@ -142,7 +144,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Authorization check
-    IF check_table_auth( ) = abap_false.
+    IF check_table_auth( lv_table_name ) = abap_false.
       send_error( iv_message = 'Not authorized for table access' iv_code = 403 ).
       RETURN.
     ENDIF.
@@ -268,7 +270,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Authorization check
-    IF check_table_auth( ) = abap_false.
+    IF check_table_auth( lv_table_name ) = abap_false.
       send_error( iv_message = 'Not authorized for table access' iv_code = 403 ).
       RETURN.
     ENDIF.
@@ -465,14 +467,35 @@ CLASS zcl_agent_read IMPLEMENTATION.
 
 
   METHOD check_table_auth.
+    DATA lv_auth_group TYPE tddat-cclass.
+
+    rv_authorized = abap_false.
+
+    " Authorization group of the requested table; none assigned means &NC&
+    SELECT SINGLE cclass FROM tddat
+      INTO lv_auth_group
+      WHERE tabname = iv_table_name.
+
+    IF sy-subrc <> 0 OR lv_auth_group IS INITIAL.
+      lv_auth_group = '&NC&'.
+    ENDIF.
+
     AUTHORITY-CHECK OBJECT 'S_TABU_DIS'
-      ID 'DICBERCLS' DUMMY
+      ID 'DICBERCLS' FIELD lv_auth_group
       ID 'ACTVT' FIELD '03'.
 
     IF sy-subrc = 0.
       rv_authorized = abap_true.
-    ELSE.
-      rv_authorized = abap_false.
+      RETURN.
+    ENDIF.
+
+    " Table-level authorization as the alternative to the group
+    AUTHORITY-CHECK OBJECT 'S_TABU_NAM'
+      ID 'ACTVT' FIELD '03'
+      ID 'TABLE' FIELD iv_table_name.
+
+    IF sy-subrc = 0.
+      rv_authorized = abap_true.
     ENDIF.
   ENDMETHOD.
 
