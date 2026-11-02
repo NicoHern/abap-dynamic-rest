@@ -94,7 +94,8 @@ CLASS zcl_agent_handler_base IMPLEMENTATION.
 
 
   METHOD zif_agent_handler~check_authorization.
-    rv_authorized = abap_true.
+    " Default to unauthorized - must explicitly pass auth check
+    rv_authorized = abap_false.
 
     IF iv_auth_object IS NOT INITIAL.
       AUTHORITY-CHECK OBJECT iv_auth_object
@@ -102,6 +103,9 @@ CLASS zcl_agent_handler_base IMPLEMENTATION.
       IF sy-subrc = 0.
         rv_authorized = abap_true.
       ENDIF.
+    ELSE.
+      " No auth object specified = no restriction
+      rv_authorized = abap_true.
     ENDIF.
   ENDMETHOD.
 

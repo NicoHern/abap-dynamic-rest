@@ -1,6 +1,8 @@
-# ABAP Dynamic REST Connector
+# ABAP Dynamic REST
 
-A lightweight, table-driven REST API framework. This branch contains the S/4HANA variant; use the main branch for the ECC variant and validate the selected revision on your system.
+**Canonical source:** [NicoHern/abap-dynamic-rest](https://github.com/NicoHern/abap-dynamic-rest), created and maintained by [Nicolas Hernandez](https://github.com/NicoHern). Forks and mirrors may exist, but this repository is the authoritative upstream implementation.
+
+A lightweight, table-driven REST API framework for SAP ECC 6.0 and S/4HANA. This is the `s4hana` branch; ECC systems use `main`.
 
 **Route REST requests to installed ABAP handlers through SM30 configuration.**
 
@@ -20,76 +22,101 @@ Use this repository to inspect or adapt the REST routing approach. For the produ
 
 If you've worked with REST APIs in ECC, you know the pain:
 
-- **CL_REST_ROUTER** requires hardcoded routes — new endpoint = code change + transport
+- **CL_REST_ROUTER** requires hardcoded routes, so a new route means a code change and a transport
 - **SAP Gateway** follows a different service implementation and setup approach
 - **RAP** requires S/4HANA
 
-This connector takes a different approach: **endpoints are configuration, not code**.
+This framework takes a different approach: **routes are configuration, not code**.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  ZAGENT_ENDPOINTS (SM30)                                        │
-├──────────────┬─────────────────────┬───────────────┬────────────┤
-│ Endpoint     │ Handler Class       │ Method        │ Active     │
-├──────────────┼─────────────────────┼───────────────┼────────────┤
-│ /query       │ ZCL_AGENT_QUERY     │ EXECUTE       │ X          │
-│ /tables/read │ ZCL_AGENT_TABLES    │ READ_TABLE    │ X          │
-│ /code/read   │ ZCL_AGENT_CODE      │ READ_CODE     │ X          │
-│ /new/endpoint│ ZCL_YOUR_CLASS      │ YOUR_METHOD   │ X   <- add │
-└──────────────┴─────────────────────┴───────────────┴────────────┘
-```
+| Endpoint path | HTTP method | Class | Method | Active |
+|---------------|-------------|-------|--------|--------|
+| `/ping` | GET | `ZCL_AGENT_PING` | `HANDLE_PING` | X |
+| `/read_table_data` | POST | `ZCL_AGENT_READ` | `HANDLE_READ_TABLE_DATA` | X |
+| `/hello` | POST | `ZCL_MY_HANDLER` | `HELLO` | X |
 
-An endpoint mapping can reuse an already installed handler. Adding a new handler or changing its logic remains a code change.
+A route can point to any handler that is already installed. Adding a new handler or changing its logic remains a code change.
 
 ---
 
 ## Features
 
-- **Dynamic routing** — endpoint → class → method mapping via config table
-- **ABAP implementation** — no SAP Gateway or BTP dependency for this routing approach; repository code is MIT-licensed. SAP system and other software licence requirements remain separate.
-- **Branch-specific compatibility** — this repository does not publish a release-by-release test matrix establishing coverage of every ECC EHP or S/4HANA release. Validate the branch, revision and operations on your target system.
-- **Runtime control** — enable/disable endpoints without transport
-- **Authorization support** — per-endpoint auth object configuration
-- **SM30 maintenance** — standard SAP tooling, standard transports
+- **Dynamic routing**: path and HTTP method map to a class and method through a config table
+- **ABAP implementation**: no SAP Gateway or BTP dependency for this routing approach. Repository code is MIT-licensed; SAP system and other software licence requirements remain separate.
+- **ECC and S/4HANA branches**: choose the branch for your target system and validate it there. This repository does not publish a release-by-release test matrix.
+- **Per-route on/off switch**: `IS_ACTIVE` disables a route without changing code
+- **Authorization support**: optional `AUTH_OBJECT` per route, with limits described under [Security Considerations](#security-considerations)
+- **SM30 maintenance**: standard SAP tooling
 
 ---
 
 ## Installation
 
+### Choose your branch
+
+| System | Branch | Why |
+|--------|--------|-----|
+| **ECC 6.0** | `main` | Avoids newer ABAP syntax |
+| **S/4HANA** | `s4hana` | Uses `CONV string( )` for dictionary fields and ships the table maintenance objects |
+
+If you hit a `SYNTAX_ERROR` dump like the one below on S/4HANA, you are on the wrong branch. `CONV` needs ABAP 7.40 or later, so `s4hana` will not compile on older ECC releases.
+
+```
+"LS_DD03P-FIELDNAME" is not type-compatible with formal parameter "IV_INPUT"
+```
+
 ### Prerequisites
 
-- A S/4HANA development or sandbox system for this branch; confirm release and support-package compatibility before use
+- S/4HANA development or sandbox system; confirm release compatibility before use
 - Developer access to create objects in a custom namespace
 - [abapGit](https://abapgit.org/) installed
 
 ### Steps
 
 1. **Clone via abapGit**
+
    ```
    Repository URL: https://github.com/NicoHern/abap-dynamic-rest
    Branch: s4hana
-   Package: ZABAPILOT (or your choice)
+   Package: ZAGENT (or your choice)
    ```
 
 2. **Activate all objects**
-   - Table: `ZAGENT_ENDPOINTS`
-   - Table maintenance: `ZAGENT_ENDPOINTS` (SM30)
-   - Class: `ZCL_AGENT_DISPATCHER`
-   - Sample handlers: `ZCL_AGENT_*`
+   - Table and table type: `ZAGENT_ENDPOINTS`, `ZAGENT_ENDPOINTS_TT`
+   - Data elements: `ZDYN_ENDPOINT`, `ZDYN_HTTP_METHOD`
+   - Domain: `ZDYN_ENDPOINT_D`
+   - Table maintenance: function group `ZAGENT_ENDPOINTS` and its maintenance view
+   - Interface: `ZIF_AGENT_HANDLER`
+   - Classes: `ZCL_AGENT_DISPATCHER`, `ZCL_AGENT_HANDLER_BASE`
+   - Sample handlers: `ZCL_AGENT_PING`, `ZCL_AGENT_READ`
 
-3. **Create SICF node**
+3. **Create the SICF node** (not shipped by abapGit on either branch)
    - Transaction: `SICF`
    - Path: `/sap/bc/zagent` (or your choice)
-   - Handler: `ZCL_AGENT_DISPATCHER`
+   - Handler list: `ZCL_AGENT_DISPATCHER`
+   - Activate the service
 
-4. **Configure endpoints**
-   - Transaction: `SM30`
+4. **Register routes in SM30**
    - Table: `ZAGENT_ENDPOINTS`
-   - Add your endpoint mappings
+   - One row per path and HTTP method; register only what you intend to expose
+
+   | ENDPOINT_PATH | HTTP_METHOD | CLASS_NAME | METHOD_NAME | IS_ACTIVE |
+   |---------------|-------------|------------|-------------|-----------|
+   | /ping | GET | ZCL_AGENT_PING | HANDLE_PING | X |
+   | /echo | POST | ZCL_AGENT_PING | HANDLE_ECHO | X |
+   | /read_table_structure | POST | ZCL_AGENT_READ | HANDLE_READ_TABLE_STRUCTURE | X |
+   | /read_table_data | POST | ZCL_AGENT_READ | HANDLE_READ_TABLE_DATA | X |
+   | /stream_table_data | POST | ZCL_AGENT_READ | HANDLE_STREAM_TABLE_DATA | X |
+   | /read_domain_values | POST | ZCL_AGENT_READ | HANDLE_READ_DOMAIN_VALUES | X |
+   | /check_type_exists | POST | ZCL_AGENT_READ | HANDLE_CHECK_TYPE_EXISTS | X |
 
 5. **Test**
-   ```
-   GET https://<host>:<port>/sap/bc/zagent/your/endpoint
+
+   ```bash
+   curl -u <user> "https://<host>:<port>/sap/bc/zagent/ping"
+
+   curl -u <user> -X POST "https://<host>:<port>/sap/bc/zagent/read_table_structure" \
+     -H "Content-Type: application/json" \
+     -d '{"table_name": "T000"}'
    ```
 
 ---
@@ -99,40 +126,47 @@ An endpoint mapping can reuse an already installed handler. Adding a new handler
 ### 1. Create a handler class
 
 ```abap
-CLASS zcl_my_handler DEFINITION PUBLIC.
+CLASS zcl_my_handler DEFINITION PUBLIC
+  INHERITING FROM zcl_agent_handler_base
+  CREATE PUBLIC.
+
   PUBLIC SECTION.
-    METHODS hello
-      IMPORTING
-        io_request  TYPE REF TO if_http_request
-        io_response TYPE REF TO if_http_response.
+    METHODS hello.
 ENDCLASS.
 
 CLASS zcl_my_handler IMPLEMENTATION.
   METHOD hello.
-    DATA(lv_name) = io_request->get_form_field( 'name' ).
-    
-    io_response->set_content_type( 'application/json' ).
-    io_response->set_cdata( |{{ "message": "Hello { lv_name }!" }}| ).
+    DATA: lv_name     TYPE string,
+          lv_response TYPE string.
+
+    lv_name = parse_json_param( iv_param_name = 'name' ).
+    lv_name = escape_json_string( lv_name ).
+
+    " Backticks keep the trailing blank; 'Hello ' would lose it in CONCATENATE
+    CONCATENATE `{"message":"Hello ` lv_name `!"}` INTO lv_response.
+    send_json( lv_response ).
   ENDMETHOD.
 ENDCLASS.
 ```
 
-### 2. Add endpoint configuration (SM30)
+### 2. Register the route (SM30)
 
-| ENDPOINT | HANDLER_CLASS | METHOD_NAME | HTTP_METHOD | ACTIVE |
-|----------|---------------|-------------|-------------|--------|
-| /hello   | ZCL_MY_HANDLER | HELLO | GET | X |
+| ENDPOINT_PATH | HTTP_METHOD | CLASS_NAME | METHOD_NAME | IS_ACTIVE |
+|---------------|-------------|------------|-------------|-----------|
+| /hello | POST | ZCL_MY_HANDLER | HELLO | X |
 
 ### 3. Call it
 
 ```bash
-curl "https://<host>:<port>/sap/bc/zagent/hello?name=World"
+curl -u <user> -X POST "https://<host>:<port>/sap/bc/zagent/hello" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "World"}'
 
 # Response:
-{ "message": "Hello World!" }
+{"message":"Hello World!"}
 ```
 
-After the handler has been implemented and activated, the endpoint mapping can route requests to it. Apply your normal authorization, testing and transport process.
+Apply your normal authorization, testing and transport process to the handler class.
 
 ---
 
@@ -142,142 +176,191 @@ After the handler has been implemented and activated, the endpoint mapping can r
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ENDPOINT` | CHAR(60) | URL path after SICF node (e.g., `/hello`) |
-| `HANDLER_CLASS` | SEOCLSNAME | ABAP class to instantiate |
-| `METHOD_NAME` | SEOCPDNAME | Method to call |
-| `HTTP_METHOD` | CHAR(10) | GET, POST, PUT, DELETE, or * for any |
-| `AUTH_OBJECT` | XUOBJECT | Authorization object (optional) |
-| `AUTH_FIELD` | XUFIELD | Authorization field (optional) |
-| `AUTH_VALUE` | XUVAL | Required auth value (optional) |
-| `ACTIVE` | XFELD | X = enabled, blank = disabled |
-| `DESCRIPTION` | TEXT80 | Documentation |
+| `ENDPOINT_PATH` | CHAR(100), key | Path after the SICF node, with leading slash (e.g. `/hello`) |
+| `HTTP_METHOD` | CHAR(10), key | Exact method, e.g. GET or POST. There is no wildcard: add one row per method |
+| `CLASS_NAME` | SEOCLSNAME | Handler class |
+| `METHOD_NAME` | SEOCPDNAME | Handler method |
+| `IS_ACTIVE` | BOOLEAN | X = enabled. Inactive rows are not loaded, so the path returns 404 |
+| `AUTH_OBJECT` | XUOBJECT | Optional authorization object |
+| `AUTH_FIELD` | XUFIELD | Not read by the dispatcher |
+| `DESCRIPTION` | CHAR255 | Free text |
+| `CATEGORY` | CHAR20 | Used only to sort `GET_REGISTERED_ENDPOINTS` |
+| `CREATED_BY`, `CREATED_ON`, `CHANGED_BY`, `CHANGED_ON` | | Not read by the dispatcher |
+
+### How paths are matched
+
+1. Exact match on path and HTTP method.
+2. If that fails, the first active row with the same HTTP method whose path is contained anywhere in the request path. This fallback uses `CS`, which ignores case.
+
+Exact matching is case-sensitive, and on this branch `ENDPOINT_PATH` keeps lower case in SM30. The fallback still applies when there is no exact match, so `/ping` also answers `/myping` and `/pingtest`.
+
+**Avoid paths that contain another registered path.** With `/read` and `/read_table` both registered, a fallback match may go to either handler, because the fallback takes the first match in load order.
+
+### When changes take effect
+
+Routes are cached in a static attribute of the dispatcher. A static attribute lasts only as long as the session, so a default stateless SICF service reloads the table on each request and SM30 changes apply straight away. `REFRESH_CACHE` only affects the session it runs in.
 
 ---
 
-## Handler Method Signature
+## Writing a Handler
 
-All handler methods must follow this signature:
+The dispatcher creates the object, calls `INITIALIZE`, then calls your method dynamically with no parameters. A handler must therefore:
 
-```abap
-METHODS <method_name>
-  IMPORTING
-    io_request  TYPE REF TO if_http_request
-    io_response TYPE REF TO if_http_response.
-```
+- inherit from `ZCL_AGENT_HANDLER_BASE` (implementing `ZIF_AGENT_HANDLER` alone is not enough)
+- be a concrete class that can be instantiated without constructor parameters
+- expose a public method with no mandatory parameters
 
-### Reading input
+The base class provides:
 
 ```abap
-" Query parameters
-DATA(lv_param) = io_request->get_form_field( 'param_name' ).
+DATA: lv_value TYPE string,
+      lv_num   TYPE i,
+      lv_flag  TYPE abap_bool.
 
-" Request body
-DATA(lv_body) = io_request->get_cdata( ).
+" Reading the JSON body
+lv_value = parse_json_param( iv_param_name = 'field_name' ).
+lv_value = parse_json_param( iv_param_name = 'table_name' iv_to_upper = abap_true ).
+lv_num   = parse_json_int( iv_param_name = 'count' iv_default = 10 ).
+lv_flag  = parse_json_bool( iv_param_name = 'active' ).
 
-" Headers
-DATA(lv_header) = io_request->get_header_field( 'X-Custom-Header' ).
+" Raw body and the request/response objects
+lv_value = mv_body.
+lv_value = mo_request->get_form_field( 'name' ).  " query parameter on a GET
+
+" Writing the response
+send_json( iv_json = lv_json_string ).                 " complete JSON document
+send_success( iv_json = '"data":"value"' ).            " {"status":"success","data":"value"}
+send_error( iv_message = 'Error message' iv_code = 400 ).
+
+" Escape any text you embed in JSON yourself
+lv_value = escape_json_string( lv_value ).
 ```
 
-### Writing output
-
-```abap
-" Set response
-io_response->set_content_type( 'application/json' ).
-io_response->set_cdata( lv_json_string ).
-
-" Set status code
-io_response->set_status( code = 200 reason = 'OK' ).
-```
+The `parse_json_*` helpers use regular expressions rather than a JSON parser. They return the first match anywhere in the body, do not understand nesting or arrays, and `parse_json_param` stops at the first `"` even if it is escaped. `parse_json_int` reads non-negative integers only.
 
 ---
 
-## Authorization
+## Included Handlers
 
-Configure per-endpoint authorization in the config table:
+All parameters are read from a JSON body, so use POST when a method takes parameters.
 
-| ENDPOINT | AUTH_OBJECT | AUTH_FIELD | AUTH_VALUE |
-|----------|-------------|------------|------------|
-| /admin/delete | Z_AGENT | ACTVT | 06 |
-| /data/read | Z_AGENT | ACTVT | 03 |
+| Class | Method | Parameters | Returns |
+|-------|--------|------------|---------|
+| `ZCL_AGENT_PING` | `HANDLE_PING` | none | `message`, `timestamp`, `system`, `client` |
+| `ZCL_AGENT_PING` | `HANDLE_ECHO` | `message` | `echo` |
+| `ZCL_AGENT_READ` | `HANDLE_READ_TABLE_STRUCTURE` | `table_name` | `fields` |
+| `ZCL_AGENT_READ` | `HANDLE_READ_TABLE_DATA` | `table_name`, `max_rows` (default 100, capped at 1000), `where` | `row_count`, `data` |
+| `ZCL_AGENT_READ` | `HANDLE_STREAM_TABLE_DATA` | `table_name`, `package_size` (default 100, capped at 500), `offset` | `rows_in_chunk`, `data` |
+| `ZCL_AGENT_READ` | `HANDLE_READ_DOMAIN_VALUES` | `domain` | `values` |
+| `ZCL_AGENT_READ` | `HANDLE_CHECK_TYPE_EXISTS` | `type_name` | `exists`, `type_class` |
 
-The handler performs `AUTHORITY-CHECK` before calling your method. Failed checks return HTTP 403.
+Limitations of the sample handlers:
 
----
-
-## Included Sample Handlers
-
-| Class | Purpose |
-|-------|---------|
-| ZCL_AGENT_PING   | Simple health check / echo endpoint |
-| ZCL_AGENT_READ   | Dynamic table reading with filters and pagination |
+- `HANDLE_READ_TABLE_STRUCTURE` writes `length` and `decimals` with leading zeros (e.g. `000003`), which strict JSON parsers reject.
+- `HANDLE_STREAM_TABLE_DATA` has no `where` and no `ORDER BY`, and re-reads the skipped rows on each call. Row order between chunks is not guaranteed, so it is not reliable for complete extraction.
+- `data` values are always returned as strings.
+- There is no source code reading or syntax check handler in this repository.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        HTTP Request                              │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    SICF Node (/sap/bc/zagent)                   │
-│                    Handler: ZCL_AGENT_HTTP_HANDLER              │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  1. Parse endpoint path from request                            │
-│  2. Lookup in ZAGENT_ENDPOINTS                                  │
-│  3. Check ACTIVE flag                                           │
-│  4. Perform AUTHORITY-CHECK (if configured)                     │
-│  5. CREATE OBJECT dynamically                                   │
-│  6. CALL METHOD dynamically                                     │
-│  7. Return response                                             │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│               Your Handler Class + Method                        │
-│               (ZCL_MY_HANDLER->MY_METHOD)                       │
-└─────────────────────────────────────────────────────────────────┘
+HTTP request
+  │
+  ▼
+SICF node /sap/bc/zagent → ZCL_AGENT_DISPATCHER
+  1. Answer OPTIONS directly and set CORS headers
+  2. Read the path after the SICF node
+  3. Load active routes from ZAGENT_ENDPOINTS if not cached
+  4. Match path and HTTP method (404 if none)
+  5. CREATE OBJECT handler dynamically, then INITIALIZE
+  6. If AUTH_OBJECT is set, call CHECK_AUTHORIZATION (403 if refused)
+  7. CALL METHOD dynamically
+  │
+  ▼
+Your handler class and method
 ```
 
 ---
 
 ## Comparison
 
-| Feature | This Connector | CL_REST_ROUTER | Gateway | RAP |
+| Feature | This framework | CL_REST_ROUTER | Gateway | RAP |
 |---------|----------------|----------------|---------|-----|
-| Add endpoint | SM30 entry | Code change | Model + code | CDS + behavior |
-| Transport needed | Config only | Yes | Yes | Yes |
-| Runtime enable/disable | ✅ | ❌ | ❌ | ❌ |
+| New route to an existing handler | SM30 entry | Code change | Model + code | CDS + behavior |
+| New handler logic | ABAP class + transport | ABAP class + transport | Model + code + transport | CDS + behavior + transport |
+| On/off flag per route | ✅ | ❌ | ❌ | ❌ |
 | ECC 6.0 support | ✅ | ✅ | ✅ | ❌ |
-| Additional licensing | None | None | Required | BTP/S4 |
+| S/4HANA support | ✅ | ✅ | ✅ | ✅ |
+| Licensing | MIT repository code; SAP licences separate | Check SAP agreement | Check SAP agreement | Check SAP agreement |
 
 ---
 
 ## Use Cases
 
-- **AI integration** — expose SAP data and functions to external AI agents
-- **Microservices** — lightweight REST APIs without Gateway overhead
-- **Rapid prototyping** — test new endpoints without transport cycles
-- **Legacy modernization** — add REST capabilities to ECC systems
+- **AI integration**: expose selected SAP data and functions to external AI agents
+- **Microservices**: lightweight REST APIs without Gateway overhead
+- **Rapid prototyping**: try routes in a development system without a transport for each one
+- **Legacy modernization**: add REST capabilities to ECC systems
 
 ---
 
-## Part of ABAPilot
+## Security Considerations
 
-This connector is the ABAP foundation of [ABAPilot](https://crimsonconsultingsl.com/abapilot/), an AI-powered ABAP development tool.
+Review these before exposing the service outside a development system.
 
-ABAPilot adds:
-- Natural language queries against SAP data
-- Autonomous ABAP code generation
-- Multi-agent pipeline (plan → design → code → review → test → deploy)
-- Error learning that improves over time
+### Authorization
 
-Interested? [Contact me](mailto:nicolashernandez@crimsonconsultingsl.com) or open an issue.
+When `AUTH_OBJECT` is set, the dispatcher calls `CHECK_AUTHORIZATION` and returns 403 if it fails. The check has these limits:
+
+- It always tests `ACTVT = 03`, so the object must have an `ACTVT` field and the check cannot distinguish read from write routes.
+- `AUTH_FIELD` is ignored.
+- A route with no `AUTH_OBJECT` is open to any user who can log on to the SICF node.
+
+To enforce anything more specific, redefine `CHECK_AUTHORIZATION` or check inside your handler method.
+
+### Table access in ZCL_AGENT_READ
+
+`CHECK_TABLE_AUTH` tests `S_TABU_DIS` with `DICBERCLS DUMMY`. It confirms the user has display access to *some* authorization group, not to the group of the requested table. **A user with `S_TABU_DIS` for one group can read every table through these endpoints.** `HANDLE_READ_DOMAIN_VALUES` and `HANDLE_CHECK_TYPE_EXISTS` have no authorization check.
+
+### Dynamic WHERE clause
+
+`HANDLE_READ_TABLE_DATA` passes the `where` parameter straight into a dynamic SELECT:
+
+```abap
+SELECT * FROM (lv_table_name)
+  INTO TABLE <lt_data>
+  UP TO lv_max_rows ROWS
+  WHERE (lv_where).
+```
+
+Treat the sample handlers as examples, not a hardened API:
+
+- Register these routes only for trusted internal consumers
+- Add an allowlist of tables, fields and operators before wider use
+- Use a dedicated technical user with narrowly scoped authorizations
+- Monitor usage through your standard logs
+
+### CORS
+
+Every response sends `Access-Control-Allow-Origin: *` and `OPTIONS` is answered with 200. Restrict this in `SET_CORS_HEADERS` if browsers should not call the service from any origin.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---------|--------------|
+| HTTP 404 `Unknown endpoint` | No active row for this path and HTTP method. Check the leading slash, the exact method and `IS_ACTIVE` |
+| HTTP 404 from the ICF, not JSON | SICF node missing or not activated |
+| Wrong handler answers | A registered path is contained in the request path; see [How paths are matched](#how-paths-are-matched) |
+| HTTP 403 `Not authorized` | User fails the `AUTH_OBJECT` check |
+| HTTP 403 `Not authorized for table access` | User has no `S_TABU_DIS` display authorization |
+| HTTP 500 `Handler class not found` | Class is missing, inactive or cannot be instantiated |
+| HTTP 500 `Handler error` | Method missing, has mandatory parameters, or the handler raised an exception. The dispatcher does not return the exception text, so debug the handler |
+| HTTP 500 with `SYNTAX_ERROR` | Check ST22; if it mentions type compatibility, see [Choose your branch](#choose-your-branch) |
+| SM30 says the table cannot be maintained | Check that the maintenance objects were pulled and activated |
 
 ---
 
@@ -285,23 +368,26 @@ Interested? [Contact me](mailto:nicolashernandez@crimsonconsultingsl.com) or ope
 
 Issues and PRs welcome. Please:
 
-1. Test on ECC 6.0 (lowest common denominator)
+1. Test on the branch you are changing, and on both ECC 6.0 and S/4HANA if the change applies to both
 2. Keep dependencies at zero
 3. Document any new configuration fields
+4. Use `CONV string( )` for dictionary field assignments
 
 ---
 
 ## License
 
-MIT License — use it, modify it, ship it.
+MIT License. See [LICENSE](LICENSE).
 
 ---
 
 ## Author
 
-**Nicolas** — SAP Technical Consultant
+**Nicolas Hernandez** — SAP Technical Consultant @ Crimson Consulting
 - LinkedIn: [nicolas-hernandez-abap](https://www.linkedin.com/in/nicolas-hernandez-abap/)
-- Email: [nicolashernandez1987@gmail.com]
+- GitHub: [NicoHern](https://github.com/NicoHern)
+- Email: nicolashernandez1987@gmail.com
+- ABAPilot enquiries: [nicolashernandez@crimsonconsultingsl.com](mailto:nicolashernandez@crimsonconsultingsl.com)
 
 Built in Valencia, Spain 🇪🇸
 
