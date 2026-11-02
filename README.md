@@ -322,7 +322,7 @@ To enforce anything more specific, redefine `CHECK_AUTHORIZATION` or check insid
 
 ### Table access in ZCL_AGENT_READ
 
-`CHECK_TABLE_AUTH` tests `S_TABU_DIS` with `DICBERCLS DUMMY`. It confirms the user has display access to *some* authorization group, not to the group of the requested table. **A user with `S_TABU_DIS` for one group can read every table through these endpoints.** `HANDLE_READ_DOMAIN_VALUES` and `HANDLE_CHECK_TYPE_EXISTS` have no authorization check.
+`CHECK_TABLE_AUTH` reads the requested table's authorization group from `TDDAT`, treating a table with no group as `&NC&`. The call is allowed if the user has display access (`ACTVT = 03`) through `S_TABU_DIS` for that group or `S_TABU_NAM` for that table. `HANDLE_READ_DOMAIN_VALUES` and `HANDLE_CHECK_TYPE_EXISTS` have no authorization check.
 
 ### Dynamic WHERE clause
 
@@ -356,7 +356,7 @@ Every response sends `Access-Control-Allow-Origin: *` and `OPTIONS` is answered 
 | HTTP 404 from the ICF, not JSON | SICF node missing or not activated |
 | Wrong handler answers | A registered path is contained in the request path; see [How paths are matched](#how-paths-are-matched) |
 | HTTP 403 `Not authorized` | User fails the `AUTH_OBJECT` check |
-| HTTP 403 `Not authorized for table access` | User has no `S_TABU_DIS` display authorization |
+| HTTP 403 `Not authorized for table access` | User has no display authorization for this table's group (`S_TABU_DIS`) or for the table itself (`S_TABU_NAM`) |
 | HTTP 500 `Handler class not found` | Class is missing, inactive or cannot be instantiated |
 | HTTP 500 `Handler error` | Method missing, has mandatory parameters, or the handler raised an exception. The dispatcher does not return the exception text, so debug the handler |
 | HTTP 500 with `SYNTAX_ERROR` | Check ST22; if it mentions type compatibility, see [Choose your branch](#choose-your-branch) |
