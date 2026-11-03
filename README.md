@@ -44,7 +44,7 @@ A route can point to any handler that is already installed. Adding a new handler
 - **ABAP implementation**: no SAP Gateway or BTP dependency for this routing approach. Repository code is MIT-licensed; SAP system and other software licence requirements remain separate.
 - **ECC and S/4HANA branches**: choose the branch for your target system and validate it there. This repository does not publish a release-by-release test matrix.
 - **Per-route on/off switch**: `IS_ACTIVE` disables a route without changing code
-- **Authorization support**: optional `AUTH_OBJECT` per route, with limits described under [Security Considerations](#security-considerations)
+- **Security layer**: per-route authorization, a table denylist, an audit log and request checks. See [Security Considerations](#security-considerations)
 - **SM30 maintenance**: standard SAP tooling
 
 ---
@@ -81,21 +81,26 @@ If you hit a `SYNTAX_ERROR` dump like the one below on S/4HANA, you are on the w
    ```
 
 2. **Activate all objects**
-   - Table and table type: `ZAGENT_ENDPOINTS`, `ZAGENT_ENDPOINTS_TT`
+   - Tables and table type: `ZAGENT_ENDPOINTS`, `ZAGENT_DENY`, `ZAGENT_AUDIT`, `ZAGENT_ENDPOINTS_TT`
    - Data elements: `ZDYN_ENDPOINT`, `ZDYN_HTTP_METHOD`
    - Domain: `ZDYN_ENDPOINT_D`
    - Table maintenance: function group `ZAGENT_ENDPOINTS` and its maintenance view
    - Interface: `ZIF_AGENT_HANDLER`
-   - Classes: `ZCL_AGENT_DISPATCHER`, `ZCL_AGENT_HANDLER_BASE`
+   - Classes: `ZCL_AGENT_AUTHZ`, `ZCL_AGENT_DISPATCHER`, `ZCL_AGENT_HANDLER_BASE`
    - Sample handlers: `ZCL_AGENT_PING`, `ZCL_AGENT_READ`
 
-3. **Create the SICF node** (not shipped by abapGit on either branch)
+3. **Set up table maintenance**
+   - If you upgraded from an earlier version, regenerate the maintenance dialog of `ZAGENT_ENDPOINTS` in SE54 so SM30 shows `AUTH_VALUE` and `AUTH_ACTVT`
+   - Generate a maintenance dialog for `ZAGENT_DENY` (SE11 → Utilities → Table Maintenance Generator, function group `ZAGENT_DENY`, one step)
+   - Create authorization group `ZAGT` (SE54 → Authorization Groups) and assign it to `ZAGENT_ENDPOINTS`, `ZAGENT_DENY` and `ZAGENT_AUDIT`. Anyone who can change these tables can expose routes or lift the denylist, so grant `S_TABU_DIS` for `ZAGT` narrowly.
+
+4. **Create the SICF node** (not shipped by abapGit on either branch)
    - Transaction: `SICF`
    - Path: `/sap/bc/zagent` (or your choice)
    - Handler list: `ZCL_AGENT_DISPATCHER`
    - Activate the service
 
-4. **Register routes in SM30**
+5. **Register routes in SM30**
    - Table: `ZAGENT_ENDPOINTS`
    - One row per path and HTTP method; register only what you intend to expose
 
@@ -109,7 +114,7 @@ If you hit a `SYNTAX_ERROR` dump like the one below on S/4HANA, you are on the w
    | /read_domain_values | POST | ZCL_AGENT_READ | HANDLE_READ_DOMAIN_VALUES | X |
    | /check_type_exists | POST | ZCL_AGENT_READ | HANDLE_CHECK_TYPE_EXISTS | X |
 
-5. **Test**
+6. **Test**
 
    ```bash
    curl -u <user> "https://<host>:<port>/sap/bc/zagent/ping"
@@ -182,7 +187,9 @@ Apply your normal authorization, testing and transport process to the handler cl
 | `METHOD_NAME` | SEOCPDNAME | Handler method |
 | `IS_ACTIVE` | BOOLEAN | X = enabled. Inactive rows are not loaded, so the path returns 404 |
 | `AUTH_OBJECT` | XUOBJECT | Optional authorization object |
-| `AUTH_FIELD` | XUFIELD | Not read by the dispatcher |
+| `AUTH_FIELD` | XUFIELD | Optional authorization field to check |
+| `AUTH_VALUE` | XUVAL | Value required for `AUTH_FIELD` |
+| `AUTH_ACTVT` | ACTIV_AUTH | Activity required, e.g. `06` for a delete route |
 | `DESCRIPTION` | CHAR255 | Free text |
 | `CATEGORY` | CHAR20 | Used only to sort `GET_REGISTERED_ENDPOINTS` |
 | `CREATED_BY`, `CREATED_ON`, `CHANGED_BY`, `CHANGED_ON` | | Not read by the dispatcher |
@@ -274,9 +281,12 @@ SICF node /sap/bc/zagent → ZCL_AGENT_DISPATCHER
   2. Read the path after the SICF node
   3. Load active routes from ZAGENT_ENDPOINTS if not cached
   4. Match path and HTTP method (404 if none)
-  5. CREATE OBJECT handler dynamically, then INITIALIZE
-  6. If AUTH_OBJECT is set, call CHECK_AUTHORIZATION (403 if refused)
-  7. CALL METHOD dynamically
+  5. Refuse non-GET requests that are not JSON (415, audited)
+  6. ZCL_AGENT_AUTHZ=>CHECK_ROUTE (403 if refused, audited)
+  7. Write the audit row
+  8. CREATE OBJECT handler dynamically, then INITIALIZE
+  9. Handler hook CHECK_AUTHORIZATION (403 if refused)
+ 10. CALL METHOD dynamically
   │
   ▼
 Your handler class and method
@@ -310,41 +320,52 @@ Your handler class and method
 
 Review these before exposing the service outside a development system.
 
-### Authorization
+### Route authorization
 
-When `AUTH_OBJECT` is set, the dispatcher calls `CHECK_AUTHORIZATION` and returns 403 if it fails. The check has these limits:
+`ZCL_AGENT_AUTHZ=>CHECK_ROUTE` runs before the handler object is created, so a refused user runs no handler code.
 
-- It always tests `ACTVT = 03`, so the object must have an `ACTVT` field and the check cannot distinguish read from write routes.
-- `AUTH_FIELD` is ignored.
-- A route with no `AUTH_OBJECT` is open to any user who can log on to the SICF node.
+| `AUTH_OBJECT` | `AUTH_FIELD` + `AUTH_VALUE` | `AUTH_ACTVT` | What is checked |
+|---------------|-----------------------------|--------------|-----------------|
+| blank | ignored | ignored | Nothing: open to any user who can log on to the SICF node |
+| set | blank | blank | `ACTVT = 03` |
+| set | blank | set | `ACTVT` = your value |
+| set | set | blank | Your field = your value |
+| set | set | set | Both |
 
-To enforce anything more specific, redefine `CHECK_AUTHORIZATION` or check inside your handler method.
+`AUTH_FIELD` without `AUTH_VALUE` is refused as a configuration error. A field that does not exist on the object also fails the check. For anything more specific, redefine `CHECK_AUTHORIZATION` in your handler, which runs afterwards as an extra check.
 
 ### Table access in ZCL_AGENT_READ
 
-`CHECK_TABLE_AUTH` reads the requested table's authorization group from `TDDAT`, treating a table with no group as `&NC&`. The call is allowed if the user has display access (`ACTVT = 03`) through `S_TABU_DIS` for that group or `S_TABU_NAM` for that table. `HANDLE_READ_DOMAIN_VALUES` and `HANDLE_CHECK_TYPE_EXISTS` have no authorization check.
+`ZCL_AGENT_AUTHZ=>CHECK_TABLE_READ` applies two layers:
+
+1. **Denylist:** no authorization overrides it. `USR02`, `USH02`, `RFCDES`, `SSF_PSE_D` and this framework's own tables are always denied. Add your own in `ZAGENT_DENY`; `TABNAME` accepts patterns such as `PA*`. A view is denied if any table behind it is denied.
+2. **Table authorization:** it reads the table's authorization group from `TDDAT`, treating a table with no group as `&NC&`. The call is allowed with display access (`ACTVT = 03`) through `S_TABU_DIS` for that group or `S_TABU_NAM` for that table.
+
+`HANDLE_READ_DOMAIN_VALUES` and `HANDLE_CHECK_TYPE_EXISTS` return dictionary metadata and have no authorization check.
 
 ### Dynamic WHERE clause
 
-`HANDLE_READ_TABLE_DATA` passes the `where` parameter straight into a dynamic SELECT:
-
-```abap
-SELECT * FROM (lv_table_name)
-  INTO TABLE <lt_data>
-  UP TO lv_max_rows ROWS
-  WHERE (lv_where).
-```
+`HANDLE_READ_TABLE_DATA` passes the `where` parameter into a dynamic SELECT. `ZCL_AGENT_AUTHZ=>IS_WHERE_SAFE` refuses subqueries, which could otherwise read tables that were not authorized. Any other condition on the requested table is still allowed, so it is not field-level security.
 
 Treat the sample handlers as examples, not a hardened API:
 
 - Register these routes only for trusted internal consumers
-- Add an allowlist of tables, fields and operators before wider use
+- Add an allowlist of fields and operators before wider use
 - Use a dedicated technical user with narrowly scoped authorizations
-- Monitor usage through your standard logs
+
+### Audit log
+
+`ZAGENT_AUDIT` records each routed call: time, user, path, HTTP method, handler, table read, decision (`A` allowed, `D` denied), reason and client IP. Request and response bodies are not stored, and paths with no route are not logged. Behind a proxy, the client IP may be the proxy's address.
+
+The row is committed before the handler runs, so it survives a rollback or a dump in the handler. If a custom handler calls `ZCL_AGENT_AUTHZ=>AUDIT`, do it before opening a database cursor or changing data, because it commits. Nothing purges the table, so schedule your own retention job.
+
+### Cross-site requests
+
+Non-GET requests must send `Content-Type: application/json` or get a 415. A cross-site HTML form cannot set that type, and a browser only sends a cross-site JSON request without credentials while `Access-Control-Allow-Origin` is `*`. This is a header check, not CSRF tokens. Keep GET routes free of changes to data, and if you narrow CORS to named origins with credentials, add token validation.
 
 ### CORS
 
-Every response sends `Access-Control-Allow-Origin: *` and `OPTIONS` is answered with 200. Restrict this in `SET_CORS_HEADERS` if browsers should not call the service from any origin.
+Every response sends `Access-Control-Allow-Origin: *` and `OPTIONS` is answered with 200. Restrict this in `SET_CORS_HEADERS` if browsers should not call the service from any origin, and see [Cross-site requests](#cross-site-requests).
 
 ---
 
@@ -355,12 +376,14 @@ Every response sends `Access-Control-Allow-Origin: *` and `OPTIONS` is answered 
 | HTTP 404 `Unknown endpoint` | No active row for this path and HTTP method. Check the leading slash, the exact method and `IS_ACTIVE` |
 | HTTP 404 from the ICF, not JSON | SICF node missing or not activated |
 | Wrong handler answers | A registered path is contained in the request path; see [How paths are matched](#how-paths-are-matched) |
-| HTTP 403 `Not authorized` | User fails the `AUTH_OBJECT` check |
-| HTTP 403 `Not authorized for table access` | User has no display authorization for this table's group (`S_TABU_DIS`) or for the table itself (`S_TABU_NAM`) |
+| HTTP 403 `Not authorized` | User fails the route check; see [Route authorization](#route-authorization) |
+| HTTP 415 `Content-Type must be application/json` | A non-GET request without the JSON content type |
+| HTTP 400 `Subqueries are not allowed in where` | The `where` parameter contains a subquery |
+| HTTP 403 `Not authorized for table access` | Table is on the denylist, or user has no display authorization for its group (`S_TABU_DIS`) or the table itself (`S_TABU_NAM`). `ZAGENT_AUDIT` shows the refusal |
 | HTTP 500 `Handler class not found` | Class is missing, inactive or cannot be instantiated |
 | HTTP 500 `Handler error` | Method missing, has mandatory parameters, or the handler raised an exception. The dispatcher does not return the exception text, so debug the handler |
 | HTTP 500 with `SYNTAX_ERROR` | Check ST22; if it mentions type compatibility, see [Choose your branch](#choose-your-branch) |
-| SM30 says the table cannot be maintained | Check that the maintenance objects were pulled and activated |
+| SM30 says the table cannot be maintained | Check that the maintenance objects were pulled and activated, and regenerate the dialog after a table change (SE54) |
 
 ---
 

@@ -94,19 +94,9 @@ CLASS zcl_agent_handler_base IMPLEMENTATION.
 
 
   METHOD zif_agent_handler~check_authorization.
-    " Default to unauthorized - must explicitly pass auth check
-    rv_authorized = abap_false.
-
-    IF iv_auth_object IS NOT INITIAL.
-      AUTHORITY-CHECK OBJECT iv_auth_object
-        ID 'ACTVT' FIELD '03'.
-      IF sy-subrc = 0.
-        rv_authorized = abap_true.
-      ENDIF.
-    ELSE.
-      " No auth object specified = no restriction
-      rv_authorized = abap_true.
-    ENDIF.
+    " Route authorization already ran in ZCL_AGENT_AUTHZ=>CHECK_ROUTE.
+    " Redefine this method to add a check specific to one handler.
+    rv_authorized = abap_true.
   ENDMETHOD.
 
 
