@@ -139,13 +139,25 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Limit max rows for safety
-    IF lv_max_rows > 1000.
+    IF lv_max_rows > 1000 OR lv_max_rows <= 0.
       lv_max_rows = 1000.
     ENDIF.
 
     " Authorization check
     IF check_table_auth( lv_table_name ) = abap_false.
       send_error( iv_message = 'Not authorized for table access' iv_code = 403 ).
+      RETURN.
+    ENDIF.
+
+    " A subquery could read tables that were not authorized above
+    IF lv_where IS NOT INITIAL
+      AND zcl_agent_authz=>is_where_safe( lv_where ) = abap_false.
+      zcl_agent_authz=>audit(
+        io_request     = mo_request
+        iv_decision    = zcl_agent_authz=>c_denied
+        iv_object_name = lv_table_name
+        iv_reason      = 'WHERE clause refused' ).
+      send_error( iv_message = 'where refused: subquery or unterminated literal' iv_code = 400 ).
       RETURN.
     ENDIF.
 
@@ -265,7 +277,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Limit package size
-    IF lv_package_size > 500.
+    IF lv_package_size > 500 OR lv_package_size <= 0.
       lv_package_size = 500.
     ENDIF.
 
@@ -467,35 +479,20 @@ CLASS zcl_agent_read IMPLEMENTATION.
 
 
   METHOD check_table_auth.
-    DATA lv_auth_group TYPE tddat-cclass.
+    rv_authorized = zcl_agent_authz=>check_table_read( iv_table_name ).
 
-    rv_authorized = abap_false.
-
-    " Authorization group of the requested table; none assigned means &NC&
-    SELECT SINGLE cclass FROM tddat
-      INTO lv_auth_group
-      WHERE tabname = iv_table_name.
-
-    IF sy-subrc <> 0 OR lv_auth_group IS INITIAL.
-      lv_auth_group = '&NC&'.
-    ENDIF.
-
-    AUTHORITY-CHECK OBJECT 'S_TABU_DIS'
-      ID 'DICBERCLS' FIELD lv_auth_group
-      ID 'ACTVT' FIELD '03'.
-
-    IF sy-subrc = 0.
-      rv_authorized = abap_true.
-      RETURN.
-    ENDIF.
-
-    " Table-level authorization as the alternative to the group
-    AUTHORITY-CHECK OBJECT 'S_TABU_NAM'
-      ID 'ACTVT' FIELD '03'
-      ID 'TABLE' FIELD iv_table_name.
-
-    IF sy-subrc = 0.
-      rv_authorized = abap_true.
+    IF rv_authorized = abap_true.
+      zcl_agent_authz=>audit(
+        io_request     = mo_request
+        iv_decision    = zcl_agent_authz=>c_allowed
+        iv_object_name = iv_table_name
+        iv_reason      = 'Table read' ).
+    ELSE.
+      zcl_agent_authz=>audit(
+        io_request     = mo_request
+        iv_decision    = zcl_agent_authz=>c_denied
+        iv_object_name = iv_table_name
+        iv_reason      = 'Table denied or not authorized' ).
     ENDIF.
   ENDMETHOD.
 
