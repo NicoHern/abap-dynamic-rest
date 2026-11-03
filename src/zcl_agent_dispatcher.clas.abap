@@ -18,6 +18,9 @@ CLASS zcl_agent_dispatcher DEFINITION
              class_name    TYPE seoclsname,
              method_name   TYPE seocpdname,
              auth_object   TYPE xuobject,
+             auth_field    TYPE xufield,
+             auth_value    TYPE xuval,
+             auth_actvt    TYPE activ_auth,
            END OF ty_endpoint_cache.
 
     TYPES tt_endpoint_cache TYPE HASHED TABLE OF ty_endpoint_cache
@@ -38,6 +41,9 @@ CLASS zcl_agent_dispatcher DEFINITION
         ev_class_name  TYPE seoclsname
         ev_method_name TYPE seocpdname
         ev_auth_object TYPE xuobject
+        ev_auth_field  TYPE xufield
+        ev_auth_value  TYPE xuval
+        ev_auth_actvt  TYPE activ_auth
         rv_found       TYPE abap_bool.
 
     CLASS-METHODS instantiate_and_call
@@ -47,6 +53,13 @@ CLASS zcl_agent_dispatcher DEFINITION
         iv_auth_object TYPE xuobject
         io_request     TYPE REF TO if_http_request
         io_response    TYPE REF TO if_http_response.
+
+    CLASS-METHODS send_refusal
+      IMPORTING
+        io_response TYPE REF TO if_http_response
+        iv_code     TYPE i
+        iv_reason   TYPE string
+        iv_message  TYPE string.
 
     CLASS-METHODS load_cache.
 
@@ -58,6 +71,9 @@ CLASS zcl_agent_dispatcher DEFINITION
         ev_class_name  TYPE seoclsname
         ev_method_name TYPE seocpdname
         ev_auth_object TYPE xuobject
+        ev_auth_field  TYPE xufield
+        ev_auth_value  TYPE xuval
+        ev_auth_actvt  TYPE activ_auth
         rv_found       TYPE abap_bool.
 
 ENDCLASS.
@@ -72,7 +88,11 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
           lv_class_name  TYPE seoclsname,
           lv_method_name TYPE seocpdname,
           lv_found       TYPE abap_bool,
-          lv_auth_object TYPE xuobject.
+          lv_auth_object TYPE xuobject,
+          lv_auth_field  TYPE xufield,
+          lv_auth_value  TYPE xuval,
+          lv_auth_actvt  TYPE activ_auth,
+          lv_type        TYPE string.
 
     set_cors_headers( server->response ).
 
@@ -97,9 +117,57 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
           ev_class_name  = lv_class_name
           ev_method_name = lv_method_name
           ev_auth_object = lv_auth_object
+          ev_auth_field  = lv_auth_field
+          ev_auth_value  = lv_auth_value
+          ev_auth_actvt  = lv_auth_actvt
           rv_found       = lv_found ).
 
     IF lv_found IS NOT INITIAL.
+
+      lv_type = server->request->get_header_field( 'content-type' ).
+
+      IF zcl_agent_authz=>is_csrf_safe(
+           iv_http_method  = lv_method
+           iv_content_type = lv_type ) = abap_false.
+        zcl_agent_authz=>audit(
+          io_request     = server->request
+          iv_decision    = zcl_agent_authz=>c_denied
+          iv_class_name  = lv_class_name
+          iv_method_name = lv_method_name
+          iv_reason      = 'Content type is not application/json' ).
+        send_refusal(
+          io_response = server->response
+          iv_code     = 415
+          iv_reason   = 'Unsupported Media Type'
+          iv_message  = 'Content-Type must be application/json' ).
+        RETURN.
+      ENDIF.
+
+      " Checked before CREATE OBJECT so a refused user runs no handler code
+      IF zcl_agent_authz=>check_route(
+           iv_auth_object = lv_auth_object
+           iv_auth_field  = lv_auth_field
+           iv_auth_value  = lv_auth_value
+           iv_auth_actvt  = lv_auth_actvt ) = abap_false.
+        zcl_agent_authz=>audit(
+          io_request     = server->request
+          iv_decision    = zcl_agent_authz=>c_denied
+          iv_class_name  = lv_class_name
+          iv_method_name = lv_method_name
+          iv_reason      = 'Route authorization failed' ).
+        send_refusal(
+          io_response = server->response
+          iv_code     = 403
+          iv_reason   = 'Forbidden'
+          iv_message  = 'Not authorized' ).
+        RETURN.
+      ENDIF.
+
+      zcl_agent_authz=>audit(
+        io_request     = server->request
+        iv_decision    = zcl_agent_authz=>c_allowed
+        iv_class_name  = lv_class_name
+        iv_method_name = lv_method_name ).
 
       instantiate_and_call(
         iv_class_name  = lv_class_name
@@ -145,6 +213,9 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
       ev_class_name  = ls_cache-class_name.
       ev_method_name = ls_cache-method_name.
       ev_auth_object = ls_cache-auth_object.
+      ev_auth_field  = ls_cache-auth_field.
+      ev_auth_value  = ls_cache-auth_value.
+      ev_auth_actvt  = ls_cache-auth_actvt.
       rv_found = abap_true.
       RETURN.
     ENDIF.
@@ -156,6 +227,9 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
         ev_class_name  = ls_cache-class_name.
         ev_method_name = ls_cache-method_name.
         ev_auth_object = ls_cache-auth_object.
+        ev_auth_field  = ls_cache-auth_field.
+        ev_auth_value  = ls_cache-auth_value.
+        ev_auth_actvt  = ls_cache-auth_actvt.
         rv_found = abap_true.
         RETURN.
       ENDIF.
@@ -175,15 +249,14 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
           io_request  = io_request
           io_response = io_response ).
 
-        IF iv_auth_object IS NOT INITIAL.
-          IF lo_handler->zif_agent_handler~check_authorization(
-               iv_auth_object ) = abap_false.
-            io_response->set_cdata(
-              '{"status":"error","message":"Not authorized"}' ).
-            io_response->set_status( code = 403 reason = 'Forbidden' ).
-            io_response->set_content_type( 'application/json' ).
-            RETURN.
-          ENDIF.
+        " The route was authorized by the caller; this is the handler's own hook
+        IF lo_handler->zif_agent_handler~check_authorization(
+             iv_auth_object ) = abap_false.
+          io_response->set_cdata(
+            '{"status":"error","message":"Not authorized"}' ).
+          io_response->set_status( code = 403 reason = 'Forbidden' ).
+          io_response->set_content_type( 'application/json' ).
+          RETURN.
         ENDIF.
 
         CALL METHOD lo_handler->(iv_method_name).
@@ -224,6 +297,9 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
       ls_cache-class_name    = ls_endpoint-class_name.
       ls_cache-method_name   = ls_endpoint-method_name.
       ls_cache-auth_object   = ls_endpoint-auth_object.
+      ls_cache-auth_field    = ls_endpoint-auth_field.
+      ls_cache-auth_value    = ls_endpoint-auth_value.
+      ls_cache-auth_actvt    = ls_endpoint-auth_actvt.
       INSERT ls_cache INTO TABLE gt_endpoint_cache.
     ENDLOOP.
 
@@ -240,7 +316,20 @@ CLASS zcl_agent_dispatcher IMPLEMENTATION.
          ev_class_name  = ev_class_name
          ev_method_name = ev_method_name
          ev_auth_object = ev_auth_object
+         ev_auth_field  = ev_auth_field
+         ev_auth_value  = ev_auth_value
+         ev_auth_actvt  = ev_auth_actvt
          rv_found       = rv_found ).
+  ENDMETHOD.
+
+
+  METHOD send_refusal.
+    DATA lv_json TYPE string.
+
+    CONCATENATE '{"status":"error","message":"' iv_message '"}' INTO lv_json.
+    io_response->set_cdata( lv_json ).
+    io_response->set_status( code = iv_code reason = iv_reason ).
+    io_response->set_content_type( 'application/json' ).
   ENDMETHOD.
 
 
