@@ -139,7 +139,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Limit max rows for safety
-    IF lv_max_rows > 1000.
+    IF lv_max_rows > 1000 OR lv_max_rows <= 0.
       lv_max_rows = 1000.
     ENDIF.
 
@@ -157,7 +157,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
         iv_decision    = zcl_agent_authz=>c_denied
         iv_object_name = lv_table_name
         iv_reason      = 'WHERE clause refused' ).
-      send_error( iv_message = 'Subqueries are not allowed in where' iv_code = 400 ).
+      send_error( iv_message = 'where refused: subquery or unterminated literal' iv_code = 400 ).
       RETURN.
     ENDIF.
 
@@ -277,7 +277,7 @@ CLASS zcl_agent_read IMPLEMENTATION.
     ENDIF.
 
     " Limit package size
-    IF lv_package_size > 500.
+    IF lv_package_size > 500 OR lv_package_size <= 0.
       lv_package_size = 500.
     ENDIF.
 
