@@ -108,6 +108,9 @@ CLASS zcl_agent_authz IMPLEMENTATION.
 
 
   METHOD is_csrf_safe.
+    DATA: lv_media TYPE string,
+          lv_rest  TYPE string.
+
     rv_safe = abap_false.
 
     IF iv_http_method = 'GET' OR iv_http_method = 'HEAD'.
@@ -115,7 +118,13 @@ CLASS zcl_agent_authz IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    IF iv_content_type CS 'application/json'.
+    " Compare the media type exactly: text/plain; x=application/json is a
+    " content type a browser sends cross-site without asking
+    SPLIT iv_content_type AT ';' INTO lv_media lv_rest.
+    CONDENSE lv_media.
+    TRANSLATE lv_media TO LOWER CASE.
+
+    IF lv_media = 'application/json'.
       rv_safe = abap_true.
     ENDIF.
   ENDMETHOD.
@@ -160,14 +169,26 @@ CLASS zcl_agent_authz IMPLEMENTATION.
 
 
   METHOD is_table_denied.
-    DATA: lt_deny TYPE tt_deny,
-          lt_open TYPE STANDARD TABLE OF dd02l-tabname,
-          lt_seen TYPE STANDARD TABLE OF dd02l-tabname,
-          lt_base TYPE STANDARD TABLE OF dd02l-tabname,
-          lv_name TYPE dd02l-tabname,
-          lv_seen TYPE i.
+    DATA: lt_deny   TYPE tt_deny,
+          lt_open   TYPE STANDARD TABLE OF dd02l-tabname,
+          lt_seen   TYPE STANDARD TABLE OF dd02l-tabname,
+          lt_base   TYPE STANDARD TABLE OF dd02l-tabname,
+          lv_name   TYPE dd02l-tabname,
+          lv_sqltab TYPE dd02l-sqltab,
+          lv_seen   TYPE i.
 
     rv_denied = abap_false.
+
+    " Only names in DD02L can be checked. This refuses CDS entity names (use
+    " the SQL view), physical cluster tables and names padded with blanks.
+    SELECT SINGLE sqltab FROM dd02l
+      INTO lv_sqltab
+      WHERE tabname  = iv_table_name
+        AND as4local = 'A'.
+    IF sy-subrc <> 0.
+      rv_denied = abap_true.
+      RETURN.
+    ENDIF.
 
     SELECT * FROM zagent_deny INTO TABLE lt_deny.
 
@@ -203,6 +224,16 @@ CLASS zcl_agent_authz IMPLEMENTATION.
         WHERE viewname = lv_name
           AND as4local = 'A'.
       APPEND LINES OF lt_base TO lt_open.
+
+      " A pool or cluster table is denied with its physical table
+      CLEAR lv_sqltab.
+      SELECT SINGLE sqltab FROM dd02l
+        INTO lv_sqltab
+        WHERE tabname  = lv_name
+          AND as4local = 'A'.
+      IF lv_sqltab IS NOT INITIAL.
+        APPEND lv_sqltab TO lt_open.
+      ENDIF.
     ENDWHILE.
   ENDMETHOD.
 
@@ -216,7 +247,8 @@ CLASS zcl_agent_authz IMPLEMENTATION.
 
     " Credentials, RFC destinations, keys and this framework's own tables
     CASE iv_name.
-      WHEN 'USR02' OR 'USH02' OR 'RFCDES' OR 'SSF_PSE_D'
+      WHEN 'USR02' OR 'USH02' OR 'USH02_ARC_TMP' OR 'USRPWDHISTORY'
+        OR 'RFCDES' OR 'SSF_PSE_D'
         OR 'ZAGENT_DENY' OR 'ZAGENT_AUDIT' OR 'ZAGENT_ENDPOINTS'.
         rv_denied = abap_true.
         RETURN.
@@ -298,9 +330,10 @@ CLASS zcl_agent_authz IMPLEMENTATION.
       ls_audit-client_ip = lv_value.
     ENDIF.
 
-    " The key includes the timestamp: retry in the rare case of a clash
-    DO 3 TIMES.
-      GET TIME STAMP FIELD ls_audit-log_ts.
+    " One request writes several rows: SEQ_NO keeps them apart on a coarse clock
+    GET TIME STAMP FIELD ls_audit-log_ts.
+    DO 100 TIMES.
+      ls_audit-seq_no = sy-index.
       INSERT zagent_audit FROM ls_audit.
       IF sy-subrc = 0.
         EXIT.

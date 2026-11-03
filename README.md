@@ -90,9 +90,9 @@ If you hit a `SYNTAX_ERROR` dump like the one below on S/4HANA, you are on the w
    - Sample handlers: `ZCL_AGENT_PING`, `ZCL_AGENT_READ`
 
 3. **Set up table maintenance**
-   - If you upgraded from an earlier version, regenerate the maintenance dialog of `ZAGENT_ENDPOINTS` in SE54 so SM30 shows `AUTH_VALUE` and `AUTH_ACTVT`
+   - Regenerate the maintenance dialog of `ZAGENT_ENDPOINTS` in SE54, on new installs too: the shipped screens do not show `AUTH_VALUE` and `AUTH_ACTVT`
    - Generate a maintenance dialog for `ZAGENT_DENY` (SE11 → Utilities → Table Maintenance Generator, function group `ZAGENT_DENY`, one step)
-   - Create authorization group `ZAGT` (SE54 → Authorization Groups) and assign it to `ZAGENT_ENDPOINTS`, `ZAGENT_DENY` and `ZAGENT_AUDIT`. Anyone who can change these tables can expose routes or lift the denylist, so grant `S_TABU_DIS` for `ZAGT` narrowly.
+   - Create authorization group `ZAGT` (SE54 → Authorization Groups) before you pull: the three `ZAGENT_*` tables are delivered assigned to it. Anyone who can change these tables can expose routes or lift the denylist, so grant `S_TABU_DIS` for `ZAGT` narrowly.
 
 4. **Create the SICF node** (not shipped by abapGit on either branch)
    - Transaction: `SICF`
@@ -256,8 +256,8 @@ All parameters are read from a JSON body, so use POST when a method takes parame
 | `ZCL_AGENT_PING` | `HANDLE_PING` | none | `message`, `timestamp`, `system`, `client` |
 | `ZCL_AGENT_PING` | `HANDLE_ECHO` | `message` | `echo` |
 | `ZCL_AGENT_READ` | `HANDLE_READ_TABLE_STRUCTURE` | `table_name` | `fields` |
-| `ZCL_AGENT_READ` | `HANDLE_READ_TABLE_DATA` | `table_name`, `max_rows` (default 100, capped at 1000), `where` | `row_count`, `data` |
-| `ZCL_AGENT_READ` | `HANDLE_STREAM_TABLE_DATA` | `table_name`, `package_size` (default 100, capped at 500), `offset` | `rows_in_chunk`, `data` |
+| `ZCL_AGENT_READ` | `HANDLE_READ_TABLE_DATA` | `table_name`, `max_rows` (default 100, capped at 1000; 0 or less means the cap), `where` | `row_count`, `data` |
+| `ZCL_AGENT_READ` | `HANDLE_STREAM_TABLE_DATA` | `table_name`, `package_size` (default 100, capped at 500; 0 or less means the cap), `offset` | `rows_in_chunk`, `data` |
 | `ZCL_AGENT_READ` | `HANDLE_READ_DOMAIN_VALUES` | `domain` | `values` |
 | `ZCL_AGENT_READ` | `HANDLE_CHECK_TYPE_EXISTS` | `type_name` | `exists`, `type_class` |
 
@@ -338,14 +338,14 @@ Review these before exposing the service outside a development system.
 
 `ZCL_AGENT_AUTHZ=>CHECK_TABLE_READ` applies two layers:
 
-1. **Denylist:** no authorization overrides it. `USR02`, `USH02`, `RFCDES`, `SSF_PSE_D` and this framework's own tables are always denied. Add your own in `ZAGENT_DENY`; `TABNAME` accepts patterns such as `PA*`. A view is denied if any table behind it is denied.
+1. **Denylist:** no authorization overrides it. `USR02`, `USH02`, `USH02_ARC_TMP`, `USRPWDHISTORY`, `RFCDES`, `SSF_PSE_D` and this framework's own tables are always denied. Add your own in `ZAGENT_DENY`; it applies to all clients, and `TABNAME` accepts patterns such as `PA*`. A dictionary view is denied if any table behind it is denied, and a pool or cluster table if its physical table is. Names not in `DD02L` are refused, so read a CDS view through its SQL view name; physical cluster tables such as `RFBLG` are refused too.
 2. **Table authorization:** it reads the table's authorization group from `TDDAT`, treating a table with no group as `&NC&`. The call is allowed with display access (`ACTVT = 03`) through `S_TABU_DIS` for that group or `S_TABU_NAM` for that table.
 
 `HANDLE_READ_DOMAIN_VALUES` and `HANDLE_CHECK_TYPE_EXISTS` return dictionary metadata and have no authorization check.
 
 ### Dynamic WHERE clause
 
-`HANDLE_READ_TABLE_DATA` passes the `where` parameter into a dynamic SELECT. `ZCL_AGENT_AUTHZ=>IS_WHERE_SAFE` refuses subqueries, which could otherwise read tables that were not authorized. Any other condition on the requested table is still allowed, so it is not field-level security.
+`HANDLE_READ_TABLE_DATA` passes the `where` parameter into a dynamic SELECT. `ZCL_AGENT_AUTHZ=>IS_WHERE_SAFE` refuses subqueries, which could otherwise read tables that were not authorized, and unterminated literals. Any other condition on the requested table is still allowed, so it is not field-level security.
 
 Treat the sample handlers as examples, not a hardened API:
 
@@ -355,13 +355,13 @@ Treat the sample handlers as examples, not a hardened API:
 
 ### Audit log
 
-`ZAGENT_AUDIT` records each routed call: time, user, path, HTTP method, handler, table read, decision (`A` allowed, `D` denied), reason and client IP. Request and response bodies are not stored, and paths with no route are not logged. Behind a proxy, the client IP may be the proxy's address.
+`ZAGENT_AUDIT` records each routed call: time, sequence number, user, path, HTTP method, handler, table read, decision (`A` allowed, `D` denied), reason and client IP. Request and response bodies are not stored, and paths with no route are not logged. Behind a proxy, the client IP may be the proxy's address.
 
 The row is committed before the handler runs, so it survives a rollback or a dump in the handler. If a custom handler calls `ZCL_AGENT_AUTHZ=>AUDIT`, do it before opening a database cursor or changing data, because it commits. Nothing purges the table, so schedule your own retention job.
 
 ### Cross-site requests
 
-Non-GET requests must send `Content-Type: application/json` or get a 415. A cross-site HTML form cannot set that type, and a browser only sends a cross-site JSON request without credentials while `Access-Control-Allow-Origin` is `*`. This is a header check, not CSRF tokens. Keep GET routes free of changes to data, and if you narrow CORS to named origins with credentials, add token validation.
+Requests other than GET and HEAD must send `Content-Type: application/json` or get a 415; the media type is compared exactly, so `text/plain; x=application/json` is refused. A cross-site HTML form cannot set that type, and a browser only sends a cross-site JSON request without credentials while `Access-Control-Allow-Origin` is `*`. This is a header check, not CSRF tokens. Keep GET routes free of changes to data, and if you narrow CORS to named origins with credentials, add token validation.
 
 ### CORS
 
@@ -377,9 +377,9 @@ Every response sends `Access-Control-Allow-Origin: *` and `OPTIONS` is answered 
 | HTTP 404 from the ICF, not JSON | SICF node missing or not activated |
 | Wrong handler answers | A registered path is contained in the request path; see [How paths are matched](#how-paths-are-matched) |
 | HTTP 403 `Not authorized` | User fails the route check; see [Route authorization](#route-authorization) |
-| HTTP 415 `Content-Type must be application/json` | A non-GET request without the JSON content type |
-| HTTP 400 `Subqueries are not allowed in where` | The `where` parameter contains a subquery |
-| HTTP 403 `Not authorized for table access` | Table is on the denylist, or user has no display authorization for its group (`S_TABU_DIS`) or the table itself (`S_TABU_NAM`). `ZAGENT_AUDIT` shows the refusal |
+| HTTP 415 `Content-Type must be application/json` | A request other than GET or HEAD without the JSON media type |
+| HTTP 400 `where refused: subquery or unterminated literal` | The `where` parameter contains a subquery or an unterminated literal |
+| HTTP 403 `Not authorized for table access` | Table is on the denylist, is not in `DD02L` (for example a CDS entity name), or user has no display authorization for its group (`S_TABU_DIS`) or the table itself (`S_TABU_NAM`). `ZAGENT_AUDIT` shows the refusal |
 | HTTP 500 `Handler class not found` | Class is missing, inactive or cannot be instantiated |
 | HTTP 500 `Handler error` | Method missing, has mandatory parameters, or the handler raised an exception. The dispatcher does not return the exception text, so debug the handler |
 | HTTP 500 with `SYNTAX_ERROR` | Check ST22; if it mentions type compatibility, see [Choose your branch](#choose-your-branch) |

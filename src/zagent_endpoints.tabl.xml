@@ -129,7 +129,7 @@
    <TABL_EXTRAS>
     <TDDAT>
      <TABNAME>ZAGENT_ENDPOINTS</TABNAME>
-     <CCLASS>&amp;NC&amp;</CCLASS>
+     <CCLASS>ZAGT</CCLASS>
     </TDDAT>
    </TABL_EXTRAS>
   </asx:values>
