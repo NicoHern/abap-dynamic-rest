@@ -430,8 +430,10 @@ CLASS zcl_agent_read IMPLEMENTATION.
       ENDIF.
       lv_first = abap_false.
 
-      lv_value = escape_json_string( ls_dd07v-domvalue_l ).
-      lv_text  = escape_json_string( ls_dd07v-ddtext ).
+      lv_value = ls_dd07v-domvalue_l.
+      lv_value = escape_json_string( lv_value ).
+      lv_text  = ls_dd07v-ddtext.
+      lv_text  = escape_json_string( lv_text ).
 
       CONCATENATE lv_response
         '{"value":"' lv_value '","text":"' lv_text '"}'
@@ -522,7 +524,8 @@ CLASS zcl_agent_read IMPLEMENTATION.
       ENDIF.
       lv_first = abap_false.
 
-      lv_fieldname = escape_json_string( ls_dd03p-fieldname ).
+      lv_fieldname = ls_dd03p-fieldname.
+      lv_fieldname = escape_json_string( lv_fieldname ).
       lv_datatype  = ls_dd03p-datatype.
 
       lv_leng = ls_dd03p-leng.
@@ -531,8 +534,10 @@ CLASS zcl_agent_read IMPLEMENTATION.
       lv_decimals = ls_dd03p-decimals.
       CONDENSE lv_decimals NO-GAPS.
 
-      lv_rollname  = escape_json_string( ls_dd03p-rollname ).
-      lv_fieldtext = escape_json_string( ls_dd03p-ddtext ).
+      lv_rollname  = ls_dd03p-rollname.
+      lv_rollname  = escape_json_string( lv_rollname ).
+      lv_fieldtext = ls_dd03p-ddtext.
+      lv_fieldtext = escape_json_string( lv_fieldtext ).
 
       IF ls_dd03p-keyflag = 'X'.
         lv_keyflag = 'true'.

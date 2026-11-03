@@ -70,6 +70,10 @@ If you hit a `SYNTAX_ERROR` dump like the one below on S/4HANA, you are on the w
 - Developer access to create objects in a custom namespace
 - [abapGit](https://abapgit.org/) installed
 
+### Before you install on a system with existing objects
+
+abapGit overwrites objects with the same name. Check first for `ZCL_AGENT_*`, `ZIF_AGENT_HANDLER` and `ZAGENT_ENDPOINTS`, for example from an earlier version of this framework. Other classes may inherit from `ZCL_AGENT_HANDLER_BASE`, and a pull replaces `ZCL_AGENT_READ` and removes table fields and handler methods that are not in this repository. Back up what you have and review the abapGit diff before pulling.
+
 ### Steps
 
 1. **Clone via abapGit**
